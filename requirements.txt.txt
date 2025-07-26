@@ -1,0 +1,4 @@
+fastapi
+uvicorn[Standard]
+prometheus_client
+pydantic
