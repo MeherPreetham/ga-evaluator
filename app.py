@@ -8,14 +8,14 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from prometheus_client import Counter, Histogram, start_http_server
 
-# ── Logging setup ─────────────────────────────────────────────────────────────
+############################Logging setup##########################################
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("ga-evaluator")
 
-# ── Prometheus metrics ────────────────────────────────────────────────────────
+###########################Prometheus metrics############################################
 eval_counter = Counter(
     'ga_evaluations_total', 'Total number of fitness evaluations'
 )
@@ -28,7 +28,7 @@ start_http_server(5000)
 
 app = FastAPI()
 
-# ── Request & response models ─────────────────────────────────────────────────
+##############################Request & response models######################################
 class EvalRequest(BaseModel):
     individual:        List[int]   # core assignments per task
     execution_times:   List[float] # task durations
@@ -42,7 +42,7 @@ class EvalResponse(BaseModel):
     makespan:    float
     imbalance:   float
 
-# ── Evaluation endpoint ───────────────────────────────────────────────────────
+#############################Evaluation endpoint###############################################
 @app.post("/evaluate", response_model=EvalResponse)
 def evaluate(req: EvalRequest):
     logger.debug(f"Eval request received: individual_len={len(req.individual)}")
