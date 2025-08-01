@@ -1,5 +1,5 @@
 # 1. Pin to a specific slim-Python 3.10 digest for reproducibility
-FROM python:3.10-slim@sha256:<INSERT_DIGEST_HERE>
+FROM python:3.10-slim
 
 # 2. Set a known working directory
 WORKDIR /app
