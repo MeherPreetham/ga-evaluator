@@ -1,3 +1,4 @@
+import os
 import logging
 import time
 from typing import List
@@ -5,7 +6,7 @@ from statistics import mean, pstdev
 
 from fastapi import Response, FastAPI
 from pydantic import BaseModel
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
 
 ########## LOGGING SETUP ################################
 logging.basicConfig(
@@ -15,23 +16,27 @@ logging.basicConfig(
 logger = logging.getLogger("ga-evaluator")
 
 ############# PROMETHEUS METRICS ########################
+POD      = os.getenv("POD_NAME", "unknown")
+REGISTRY = CollectorRegistry(auto_describe=False)
 eval_counter = Counter(
-    'ga_evaluations_total', 'Total number of fitness evaluations'
+    'ga_evaluations_total', 'Total number of fitness evaluations', labelnames=['pod'], registry=REGISTRY
 )
 eval_duration = Histogram(
-    'ga_evaluation_seconds', 'Time taken per fitness evaluation (s)'
+    'ga_evaluation_seconds', 'Time taken per fitness evaluation (s)', labelnames=['pod'], registry=REGISTRY
 )
 
 app = FastAPI()
 
-######### HEALTH ADN EMETRICS ENDPOINTS #########
+######### HEALTH AND METRICS ENDPOINTS #########
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
 
 @app.get("/metrics")
 def metrics():
-    data = generate_latest()
+    eval_counter.labels(pod=POD)
+    eval_duration.labels(pod=POD)
+    data = generate_latest(REGISTRY)
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 ############ REQUEST & RESPONSE #######################
@@ -51,7 +56,8 @@ class EvalResponse(BaseModel):
 ########## EVALUATION ENDPOINT #####################
 @app.post("/evaluate", response_model=EvalResponse)
 def evaluate(req: EvalRequest):
-    eval_counter.inc()
+    time.sleep(0.5)
+    eval_counter.inc(labels={'pod': POD})
     start = time.time()
 
     # 1) Compute per-core times
@@ -74,12 +80,20 @@ def evaluate(req: EvalRequest):
     duration = time.time() - start
     eval_duration.observe(duration)
 
-    # 5) Fitness
-    fitness = (
-        0.4 * (makespan / sum(req.execution_times)) +
-        0.2 * (total_energy / sum(req.execution_times)) +
-        0.4 * imbalance
-    )
+    # 5) Fitness (now matches monolithic GA normalization)
+    # Compute global bounds
+    TOTAL_EXEC   = sum(req.execution_times) 
+    MAX_MAKESPAN = TOTAL_EXEC               
+    MAX_ENERGY   = TOTAL_EXEC * req.base_energy \
+                   + (n_cores - 1) * TOTAL_EXEC * req.idle_energy  
+
+    # Normalize & cap each metric
+    nm = min(makespan / MAX_MAKESPAN, 1.0)   
+    ne = min(total_energy / MAX_ENERGY, 1.0) 
+    ni = min(imbalance, 1.0)                
+
+    # Weighted‐sum fitness
+    fitness = 0.4 * nm + 0.2 * ne + 0.4 * ni  
 
     logger.info(
         f"Eval done: makespan={makespan:.2f}, energy={total_energy:.2f}, "
